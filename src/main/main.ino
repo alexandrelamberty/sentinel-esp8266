@@ -28,42 +28,34 @@ SFE_BMP180 pressure;
 
 int pair_delay = 5000;
 
-// Interval for routines
+// Non-blocking delay
 const long interval = 1000;
 unsigned long previousMillis = 0;
 int count = 0;
 
-// Default configuration, overwritten when configuring the device
+// Default configuration, overwritten when configuring the device.
+// Can be updated with a post http request, see handlePostSettings()
 char mqtt_server[] = "http://192.168.1.17";
 char mqtt_port[] = "8080";
-const char topic[] = "sensors/temperature";
+// Could change ?
+//const char topic[] = "sensors/temperature";
 char api_token[] = "12345";
 char api_url[] = "http://192.168.17:3333";
 
-// Device default
-char device_id[] = "0";
-char device_name[] = "Sentinel";
-char device_paired[] = "false";
+// Device defaults
+char device_id[] = "0"; // Updated when pairing
+char device_name[] = "Sentinel 0.0.1";
+char device_paired[] = "false"; // Updated when pairing
 char device_zone[] = "office";
-const String device_capabilities[] = {
-    "sensor/pressure",
-    "sensor/temperature"};
+char device_standby[] = "true";
+const String device_capabilities[2] = {
+  "sensor/pressure",
+  "sensor/temperature"
+};
 
+// System
 char env[] = "dev";
-
-// ---------------------------------------------------------------------------------------------------
-// CONFIG
-// ---------------------------------------------------------------------------------------------------
-
-// flag for saving data
 bool shouldSaveConfig = false;
-
-// callback notifying us of the need to save config
-void saveConfigCallback()
-{
-  Serial.println("Should save config");
-  shouldSaveConfig = true;
-}
 
 // ---------------------------------------------------------------------------------------------------
 // SETUP
@@ -83,8 +75,10 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("--- Sentinel startup");
-  chipInfo();
+  Serial.println("--- Starting setup ---");
+  pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
+  digitalWrite(LED_BUILTIN, LOW); 
+  // chipInfo();
 
   // --- CONFIGURATION - READ
   Serial.println("[-] Read configuration file");
@@ -101,7 +95,7 @@ void setup()
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile)
       {
-        Serial.println("Opened config file");
+        Serial.println(" > Opening config file");
         size_t size = configFile.size();
         // Allocate a buffer to store contents of the file.
         std::unique_ptr<char[]> buf(new char[size]);
@@ -130,32 +124,32 @@ void setup()
         }
         else
         {
-          Serial.println("> failed to open config.json");
+          Serial.println(" > failed to open config.json");
         }
         configFile.close();
       }
     }
     else
     {
-      Serial.println("> file config.json does not exist");
+      Serial.println(" > file config.json does not exist");
     }
   }
   else
   {
-    Serial.println("> failed to mount file system");
+    Serial.println(" > failed to mount file system");
   }
   // end configuration
 
   // --- WIFI MANAGER ---
-  Serial.println("[-] Wifi Manager");
+  Serial.println("\n[-] Wifi Manager");
 
   // The extra parameters to be configured (can be either global or just in the setup)
   // After connecting, parameter.getValue() will get you the configured value
   // id/name placeholder/prompt default length
   WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
   WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
-  WiFiManagerParameter custom_api_token("apikey", "API token", api_token, 32);
-  WiFiManagerParameter custom_api_url("apiurl", "API url", api_url, 32);
+  WiFiManagerParameter custom_api_token("api_token", "API token", api_token, 32);
+  WiFiManagerParameter custom_api_url("api_url", "API url", api_url, 32);
 
   // Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wifiManager;
@@ -164,7 +158,7 @@ void setup()
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
   // set static ip
-  wifiManager.setSTAStaticIPConfig(IPAddress(192, 168, 1, 99), IPAddress(192, 168, 1, 80), IPAddress(255, 255, 255, 0));
+  // wifiManager.setSTAStaticIPConfig(IPAddress(192, 168, 1, 99), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
 
   // add all your parameters here
   wifiManager.addParameter(&custom_mqtt_server);
@@ -186,82 +180,89 @@ void setup()
   // and goes into a blocking loop awaiting configuration
   if (!wifiManager.autoConnect("SentinelAP", "password"))
   {
-    Serial.println("> failed to connect and hit timeout");
+    Serial.println(" > failed to connect and hit timeout");
     delay(3000);
     // reset and try again, or maybe put it to deep sleep
     ESP.restart();
     delay(5000);
   }
 
-  Serial.println("> Sentinel Connected...\n");
+  Serial.println(" > connection success!");
 
-  // --- UPDATE CONFIGURATION
-  Serial.println("[-] Update custom configuration (if changed by WifiManager)...");
+  // --- UPDATE CONFIGURATION ------------------------------------------------------------------
+
+  Serial.println("\n[-] Update custom configuration");
   strcpy(mqtt_server, custom_mqtt_server.getValue());
   strcpy(mqtt_port, custom_mqtt_port.getValue());
   strcpy(api_token, custom_api_token.getValue());
   strcpy(api_url, custom_api_url.getValue());
 
-  Serial.println("[-] Show configuration:");
+  Serial.println("\n[-] Show configuration:");
   Serial.println("\tmqtt_server : " + String(mqtt_server));
   Serial.println("\tmqtt_port : " + String(mqtt_port));
   Serial.println("\tapi_token : " + String(api_token));
   Serial.println("\tapi_url : " + String(api_url));
   Serial.println("\tdevice_paired : " + String(device_paired));
+  Serial.println("\tdevice_id : " + String(device_id));
 
-  // --- SAVE CONFIGURATION
+  // --- SAVE CONFIGURATION --------------------------------------------------------------------
 
   if (shouldSaveConfig)
   {
     saveConfig();
   }
 
-  // --- SENSOR
-  Serial.println("[-] Sensor...");
+  // --- SENSORS --------------------------------------------------------------------------------
+
+  Serial.println("\n[-] Sensors");
   bmp180Info();
 
-  // --- WEB SERVER
-  Serial.println("[-] Web server...");
-  server.on("/led", handleLed);
+  // --- WEB SERVER -----------------------------------------------------------------------------
+
+  Serial.println("\n[-] Web server...");
   server.on("/", handleRoot);
-  server.on("/data", handleData);
-  server.on("/rpc", handleRequest);
+  server.on("/info", handleInfo);
+  server.on("/settings", HTTP_GET, handleGetSettings);
+  server.on("/settings", HTTP_POST, handlePostSettings);
+  server.on("/locate", handleLocate);
+  server.on("/unpair", handleUnpair);
   server.on("/reset", handleReset);
   server.onNotFound(handleNotFound);
   // FIXME: Handle error
   server.begin();
-  Serial.println("> HTTP server started");
+  Serial.println(" > HTTP server started");
 
   // --- PAIRING
-  Serial.println("[-] Device pairing...");
-  Serial.println(device_paired);
+  Serial.println("\n[-] Device pairing...");
+  Serial.println(" > device_paired: " + String(device_paired));
   if (strcmp(device_paired, "false") == 0)
   {
-    Serial.println("> Device not paired!");
+    Serial.println(" > Device not paired!");
     // TODO: Add a callback on success to change the "device_paired"
     pair();
     delay(3000);
   }
   while (strcmp(device_paired, "false") == 0)
   {
-    Serial.println("> Device not paired...");
+    Serial.println(" > Device not paired...");
     pair();
     delay(3000);
   }
-  Serial.println("> Device paired!");
+  Serial.println(" > Device paired!");
 
-  // --- Show board informations
-  showInfo();
+  // Force PAIR debug
+  // pair();
+
+  Serial.println("\n--- Setup finished ---");
 }
 
 void showInfo()
 {
-  Serial.println("--- Device informations...");
+  Serial.println("\n[-] Device informations...");
   Serial.println(WiFi.macAddress());
   Serial.println(WiFi.localIP());
   Serial.println(device_id);
-  Serial.println("---");
-  Serial.println("");
+  Serial.println("\n");
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -295,17 +296,17 @@ void loop()
 }
 
 // ---------------------------------------------------------------------------------------------------
-// HTTP
+// SENSORS
 // ---------------------------------------------------------------------------------------------------
 
 void bmp180Info()
 {
-  Serial.println("--- BMP180 setup");
+  Serial.println("\n[-] BMP180 setup");
   if (pressure.begin())
-    Serial.println("> BMP180 init success");
+    Serial.println(" > BMP180 init success");
   else
   {
-    Serial.println("> BMP180 init fail\n\n");
+    Serial.println(" > BMP180 init fail\n\n");
     while (1)
       ; // Pause forever.
   }
@@ -317,7 +318,8 @@ void bmp180Info()
 
 void chipInfo()
 {
-  Serial.println("--- BOARD INFO");
+  // Update
+  Serial.println("\n[-] BOARD INFO");
   Serial.println("NodeMCU Amica V2 ESP8266 ES12F");
   unsigned int chip_id = ESP.getChipId();
   Serial.print("Chip id: ");
@@ -342,54 +344,14 @@ void chipInfo()
 // HTTP
 // ---------------------------------------------------------------------------------------------------
 
-void post(double T)
-{
-  Serial.println("--- Post Measurements...");
-  Serial.println(T);
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    WiFiClient client;
-    HTTPClient http;
-    String url = "http://192.168.1.17:3333/measurements";
-    Serial.println(url);
-    http.begin(client, url);
-    http.addHeader("Content-Type", "application/json");
-
-    DynamicJsonDocument doc(200);
-    doc["device_id"] = device_id;
-    doc["type"] = "temperature";
-    doc["value"] = T;
-
-    String requestBody;
-    serializeJson(doc, requestBody);
-    int httpResponseCode = http.POST(requestBody);
-
-    if (httpResponseCode > 0)
-    {
-      String response = http.getString();
-      Serial.println(httpResponseCode);
-      Serial.println(response);
-    }
-    else
-    {
-      Serial.printf("> Error occurred while sending HTTP POST: %s\n",
-                    http.errorToString(httpResponseCode).c_str());
-    }
-  }
-  else
-  {
-    Serial.println("> WiFi Disconnected");
-  }
-}
-
 void pair()
 {
-  Serial.println("--- Pairing device, sending http request...");
+  Serial.println("\n[-] Pairing device");
   if (WiFi.status() == WL_CONNECTED)
   {
     WiFiClient client;
     HTTPClient http;
-
+    // FIXME: extract to variable
     http.begin(client, "http://192.168.1.17:3333/devices/pair");
     http.addHeader("Content-Type", "application/json");
 
@@ -398,8 +360,12 @@ void pair()
     device["name"] = device_name;
     device["mac"] = WiFi.macAddress();
     device["ip"] = WiFi.localIP();
-    device["zone"] = device_zone;
-    device["capabilities"] = device_zone;
+    JsonArray capabilities = device.createNestedArray("capabilities");
+    for (int i = 0; i < sizeof(device_capabilities) / sizeof(device_capabilities[0]); i++)
+    {
+      String s = device_capabilities[i];
+      capabilities.add(s);
+    }
 
     String requestBody;
     serializeJson(device, requestBody);
@@ -411,6 +377,7 @@ void pair()
       String response = http.getString();
       Serial.println(httpResponseCode);
       Serial.println(response);
+      
       // Update variable and save configuration
       DynamicJsonDocument res(1024);
       deserializeJson(res, response);
@@ -418,6 +385,48 @@ void pair()
       strcpy(device_id, res["data"]["id"]);
 
       saveConfig();
+    }
+    else
+    {
+      Serial.printf(" > Error occurred while sending HTTP POST: %s\n",
+                    http.errorToString(httpResponseCode).c_str());
+    }
+  }
+  else
+  {
+    Serial.println(" > WiFi Disconnected");
+  }
+}
+
+void post(double T)
+{
+  Serial.println("\n[-] Post Measurements");
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    WiFiClient client;
+    HTTPClient http;
+    String url = "http://192.168.1.17:3333/measurements";
+    Serial.println(url);
+    http.begin(client, url);
+    http.addHeader("Content-Type", "application/json");
+
+    // CreateMeasurementRequest
+    DynamicJsonDocument doc(200);
+    JsonObject metadata = doc.createNestedObject("metadata");
+    metadata["device_id"] = device_id;
+    metadata["type"] = "temperature";
+    doc["value"] = T;
+
+    String requestBody;
+    serializeJson(doc, requestBody);
+    serializeJson(doc, Serial);
+    int httpResponseCode = http.POST(requestBody);
+    
+    if (httpResponseCode > 0)
+    {
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response);
     }
     else
     {
@@ -452,45 +461,103 @@ void pair()
   mqttClient.endMessage();
   }
 */
+
 // ---------------------------------------------------------------------------------------------------
 // WEB SERVER
 // ---------------------------------------------------------------------------------------------------
-
-// Reset a device by deleting is configuration file and restarting it
-void handleReset()
-{
-  server.send(200, "text/plain", "Device reseted!\r\n");
-}
-
-void handleLed()
-{
-  digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-  server.send(200, "text/plain", "ok\r\n");
-}
 
 void handleRoot()
 {
   server.send(200, "text/plain", "Humidity & Temperature Sensor\r\n");
 }
 
-void handleData()
+void handleInfo()
 {
-  server.send(200, "application/json", "{}\r\n");
+  Serial.println("> HandleInfo ");
+  DynamicJsonDocument doc(512);
+  doc["device_id"] = device_id;
+  doc["name"] = device_name;
+  doc["mac"] = WiFi.macAddress();
+  doc["ip"] = WiFi.localIP();
+  // Device Capabilities
+  JsonArray capabilities = doc.createNestedArray("capabilities");
+  for (int i = 0; i < sizeof(device_capabilities) / sizeof(device_capabilities[0]); i++)
+  {
+    String s = device_capabilities[i];
+    capabilities.add(s);
+  }
+  // Board
+  JsonObject board = doc.createNestedObject("board");
+  unsigned int chip_id = ESP.getChipId();
+  board["chip_id"] = chip_id;
+  board["core_version"] = ESP.getCoreVersion();
+  board["sdk_version"] = ESP.getSdkVersion();
+  board["cpu_frequency"] = ESP.getCpuFreqMHz();
+  board["flash_chip_id"] = ESP.getFlashChipId();
+  board["flash_chip_size"] = ESP.getFlashChipSize();
+  board["flash_chip_Spedd"] = ESP.getFlashChipSpeed();
+  board["vcc"] = ESP.getVcc();
+  // Zone
+  // Rules
+
+  String requestBody;
+  serializeJson(doc, requestBody);
+  server.send(200, "application/json", requestBody);
 }
 
-void handleRequest()
+void handleGetSettings()
 {
-  if (server.hasArg("plain") == false)
-  { // Check if body received
-    server.send(200, "text/plain", "Body not received");
-    return;
-  }
-  String message = "Body received:\n";
-  message += server.arg("plain");
-  message += "\n";
+  server.send(200, "text/plain", "Get settings success.\r\n");
+}
 
-  server.send(200, "text/plain", message);
-  Serial.println(message);
+void handlePostSettings()
+{
+  // FIXME: Handle GET / POST
+
+  // Update local settings
+  // strcpy(mqtt_server, custom_mqtt_server.getValue());
+  // strcpy(mqtt_port, custom_mqtt_port.getValue());
+  // strcpy(api_token, custom_api_token.getValue());
+  // strcpy(api_url, custom_api_url.getValue());
+  // Save new settings to the file system.
+  saveConfig();
+  server.send(200, "text/plain", "Settings saved, device restarting...\r\n");
+}
+
+// FIXME: Blocking ...
+void handleLocate()
+{
+  // Start blinking for
+  server.send(200, "text/plain", "Locating device for 2 minutes.\r\n");
+  // digitalWrite(LED_BUILTIN, LOW);  
+  // startBlink() non-blocking function
+  delay(2000);
+  // stopBlink()
+}
+
+void handleUnpair()
+{
+  server.send(200, "text/plain", "Device reset and restarting...\r\n");
+  SPIFFS.format();
+  ESP.restart();
+}
+
+void handleReset()
+{
+  server.send(200, "text/plain", "Device reset and restarting...\r\n");
+  SPIFFS.format();
+  WiFiManager wifiManager;
+  wifiManager.resetSettings();
+  ESP.restart();
+}
+
+void handleRestart()
+{
+  server.send(200, "text/plain", "Device reset and restarting...\r\n");
+  SPIFFS.format();
+  WiFiManager wifiManager;
+  wifiManager.resetSettings();
+  ESP.restart();
 }
 
 void handleNotFound()
@@ -516,7 +583,7 @@ void handleNotFound()
 
 void getData()
 {
-  Serial.println("--- Start Measurements...");
+  Serial.println("\n[-] Get Readings");
   char status;
   double T, P, p0, a;
 
@@ -615,16 +682,18 @@ void getData()
           // Serial.println(" feet");
         }
         else
-          Serial.println("> error retrieving pressure measurement\n");
+          Serial.println(" > error retrieving pressure measurement\n");
       }
       else
-        Serial.println("> error starting pressure measurement\n");
+        Serial.println(" > error starting pressure measurement\n");
     }
     else
-      Serial.println("> error retrieving temperature measurement\n");
+      Serial.println(" > error retrieving temperature measurement\n");
   }
   else
-    Serial.println("> error starting temperature measurement\n");
+    Serial.println(" > error starting temperature measurement\n");
+
+  // Post the readings
   post(T);
 }
 
@@ -634,9 +703,7 @@ void getData()
 
 void saveConfig()
 {
-  Serial.println("> Save Configuration");
-  // Start save
-  Serial.println("[-] Save configuration...");
+  Serial.println("\n[-] Save Configuration");
 #ifdef ARDUINOJSON_VERSION_MAJOR >= 6
   DynamicJsonDocument json(1024);
 #else
@@ -655,7 +722,7 @@ void saveConfig()
   File configFile = SPIFFS.open("/config.json", "w");
   if (!configFile)
   {
-    Serial.println("failed to open config file for writing");
+    Serial.println(" > failed to open config file for writing");
   }
 
 #ifdef ARDUINOJSON_VERSION_MAJOR >= 6
@@ -667,4 +734,11 @@ void saveConfig()
 #endif
   configFile.close();
   // end save
+}
+
+// callback notifying us of the need to save config
+void saveConfigCallback()
+{
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
 }
