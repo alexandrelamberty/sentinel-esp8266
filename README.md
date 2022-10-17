@@ -3,7 +3,7 @@
 Home monitoring system running on a NodeMCU ESP8266 ESP-12F.
 
 The idea behind this project his to have a base system working on a standard
-microcontroller with communication capabilities.
+microcontroller with communication capabilities, http/https, mqtt...
 
 See the [Nidus](https://github.com/alexandrelamberty/nidus/) repository and the
 [Sentinel Api Spec](https://github.com/alexandrelamberty/sentinel-api)
@@ -14,14 +14,23 @@ See the [Nidus](https://github.com/alexandrelamberty/nidus/) repository and the
   - [x] Wifi 
       - [x] Access Point 
       - [x] Configuration
-  - [ ] Auto-pairing
+  - [x] Auto-pairing
   - [ ] Auto updates
 - [ ] Protocols
   - [x] HTTP
+  - [ ] HTTPS
   - [ ] MQTT
 - [ ] Sensors
   - [x] BMP180
+  - [ ] DS18B20
 - [ ] Security
+  - [x] Configuration AP
+  - [ ] Key
+- [ ] Tests
+
+## Technolgies
+
+- [Arduino](https://www.arduino.cc/)
 
 ## Hardware
 
@@ -29,6 +38,8 @@ The hardware I currently use is a
 [NodeMCU Lua Amica Module V2 ESP8266 ESP-12FCP2102]() 
 micro-controller, a temperature sensor [DS18B20]() and temperature and
 pressure sensor [BMP180]().
+
+![Hardware](hardware.jpg)
 
 ## Installation
 
@@ -50,7 +61,6 @@ and install the following packages:
 - WiFiManager
 
 Upload the sketch
-
 
 ## Configuration
 
