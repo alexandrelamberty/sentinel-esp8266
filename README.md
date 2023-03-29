@@ -2,7 +2,7 @@
 
 Home monitoring system running on a NodeMCU ESP8266 ESP-12F.
 
-The idea behind this project his to have a base system working on a standard
+The idea behind this project is to have a base system working on a standard
 microcontroller with communication capabilities, http/https, mqtt...
 
 See the [Nidus](https://github.com/alexandrelamberty/nidus/) repository and the
