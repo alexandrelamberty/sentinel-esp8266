@@ -6,14 +6,14 @@ The idea behind this project his to have a base system working on a standard
 microcontroller with communication capabilities, http/https, mqtt...
 
 See the [Nidus](https://github.com/alexandrelamberty/nidus/) repository and the
-[Sentinel Api Spec](https://github.com/alexandrelamberty/sentinel-api)
+[Sentinel API Spec](https://github.com/alexandrelamberty/sentinel-api)
 
 ## Features
 
 - [ ] Configuration
-  - [x] Wifi 
-      - [x] Access Point 
-      - [x] Configuration
+  - [x] Wifi
+    - [x] Access Point
+    - [x] Configuration
   - [x] Auto-pairing
   - [ ] Auto updates
 - [ ] Protocols
@@ -34,8 +34,8 @@ See the [Nidus](https://github.com/alexandrelamberty/nidus/) repository and the
 
 ## Hardware
 
-The hardware I currently use is a 
-[NodeMCU Lua Amica Module V2 ESP8266 ESP-12FCP2102]() 
+The hardware I currently use is a
+[NodeMCU Lua Amica Module V2 ESP8266 ESP-12FCP2102]()
 micro-controller, a temperature sensor [DS18B20]() and temperature and
 pressure sensor [BMP180]().
 
@@ -43,11 +43,12 @@ pressure sensor [BMP180]().
 
 ## Installation
 
-### Arduino 
+### Arduino
 
 Open the Arduino Preferences <kbd>Ctrl</kbd>+<kbd>,</kbd> and in `Additional
 Boards Manager Urls`
 add the following one:
+
 ```
 https://arduino.esp8266.com/stable/package_esp8266com_index.json
 ```
@@ -69,8 +70,7 @@ Connect the device to a power supply.
 Connect your phone to the new access point created by the device. It should be
 something like `sentinel-xxx`.
 
-Then access the device settings by navigating to http://192.168.4.1 and complete
+Then access the device settings by navigating to <http://192.168.4.1> and complete
 the setup.
 
 The device then will restart and will pair automatically with the server.
-
